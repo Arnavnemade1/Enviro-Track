@@ -1,251 +1,244 @@
-class EnviroTrackPopup {
+// Popup script for AI Environmental Impact Tracker
+
+const AI_PLATFORMS = {
+  'chatgpt.com': { name: 'ChatGPT', icon: '🤖' },
+  'claude.ai': { name: 'Claude', icon: '🧠' },
+  'gemini.google.com': { name: 'Gemini', icon: '♊' },
+  'chat.deepseek.com': { name: 'DeepSeek', icon: '🔍' },
+  'www.copilot.com': { name: 'Copilot', icon: '👨‍💻' },
+  'grok.com': { name: 'Grok', icon: '🚀' },
+  'poe.com': { name: 'Poe', icon: '💭' },
+  'perplexity.ai': { name: 'Perplexity', icon: '🔎' },
+  'character.ai': { name: 'Character.AI', icon: '🎭' },
+  'huggingface.co': { name: 'Hugging Face', icon: '🤗' },
+  'replicate.com': { name: 'Replicate', icon: '🔄' }
+};
+
+class PopupUI {
   constructor() {
     this.stats = null;
-    this.platformInfo = {};
+    this.isTracking = true;
     this.init();
   }
 
-  init() {
-    this.loadStats();
-    this.setupEventListeners();
-    this.startAutoRefresh();
-  }
-
-  setupEventListeners() {
-    document.getElementById('trackingToggle').addEventListener('click', () => {
-      this.toggleTracking();
-    });
-
-    document.getElementById('resetBtn').addEventListener('click', () => {
-      this.resetData();
-    });
-
-    document.getElementById('historyBtn').addEventListener('click', () => {
-      this.showHistory();
-    });
-
-    document.getElementById('settingsBtn').addEventListener('click', () => {
-      this.showSettings();
-    });
-
-    document.getElementById('closeInsights').addEventListener('click', () => {
-      this.closeInsights();
-    });
-  }
-
-  loadStats() {
-    chrome.storage.local.get(['dailyStats'], (result) => {
-      this.stats = result.dailyStats || {
-        requests: 0,
-        totalTime: 0,
-        energyUsed: 0,
-        co2Footprint: 0,
-        sites: {},
-        hourlyData: Array(24).fill(0),
-        isTracking: true
-      };
-      this.updateDisplay();
-    });
-  }
-
-  updateDisplay() {
-    this.updateQuickStats();
-    this.updateImpactBar();
-    this.updatePlatformsList();
-    this.updateTrackingToggle();
-  }
-
-  updateQuickStats() {
-    document.getElementById('totalRequests').textContent = this.stats.requests;
-
-    const energy = this.stats.energyUsed;
-    let energyDisplay;
-    if (energy < 0.001) {
-      energyDisplay = (energy * 1000000).toFixed(0) + 'µWh';
-    } else if (energy < 1) {
-      energyDisplay = (energy * 1000).toFixed(2) + 'mWh';
-    } else {
-      energyDisplay = energy.toFixed(3) + 'kWh';
+  async init() {
+    try {
+      await this.loadStats();
+      this.render();
+      this.bindEvents();
+      
+      // Refresh every 5 seconds
+      setInterval(() => {
+        this.loadStats();
+        this.render();
+      }, 5000);
+      
+    } catch (error) {
+      console.error('Failed to initialize popup:', error);
+      this.showError();
     }
-    document.getElementById('totalEnergy').textContent = energyDisplay;
-
-    const co2 = Math.round(this.stats.co2Footprint);
-    document.getElementById('totalCO2').textContent = co2 + 'g';
-
-    const treeMinutes = (this.stats.co2Footprint / 0.06).toFixed(1);
-    document.getElementById('treeTime').textContent = treeMinutes + 'm';
   }
 
-  updateImpactBar() {
-    const co2 = this.stats.co2Footprint;
-    const impactFill = document.getElementById('impactFill');
-    const impactLevel = document.getElementById('impactLevel');
+  async loadStats() {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: 'getStats' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Error loading stats:', chrome.runtime.lastError);
+          this.stats = this.getDefaultStats();
+        } else {
+          this.stats = response?.stats || this.getDefaultStats();
+          this.isTracking = this.stats.isTracking !== false;
+        }
+        resolve();
+      });
+    });
+  }
 
-    let percentage = Math.min(100, (co2 / 200) * 100);
-    impactFill.style.width = percentage + '%';
+  getDefaultStats() {
+    return {
+      requests: 0,
+      totalTime: 0,
+      energyUsed: 0,
+      co2Footprint: 0,
+      sites: {},
+      isTracking: true
+    };
+  }
 
-    impactLevel.classList.remove('low', 'moderate', 'high');
+  render() {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+
+    // Update tracking status
+    this.updateTrackingStatus();
+
+    // Update request count
+    document.getElementById('requestCount').textContent = this.stats.requests;
+
+    // Update average response time
+    const avgTime = this.stats.requests > 0 
+      ? Math.round(this.stats.totalTime / this.stats.requests)
+      : 0;
+    document.getElementById('avgResponseTime').textContent = avgTime;
+
+    // Update energy consumption (convert from kWh to Wh)
+    const energyWh = (this.stats.energyUsed * 1000).toFixed(2);
+    document.getElementById('energyValue').textContent = energyWh;
     
-    if (co2 < 50) {
-      impactLevel.textContent = 'Minimal';
-      impactLevel.classList.add('low');
-    } else if (co2 < 150) {
-      impactLevel.textContent = 'Moderate';
-      impactLevel.classList.add('moderate');
+    // Energy progress bar (max at 100 Wh for visualization)
+    const energyPercent = Math.min((parseFloat(energyWh) / 100) * 100, 100);
+    document.getElementById('energyProgress').style.width = `${energyPercent}%`;
+
+    // Update carbon footprint
+    const carbonGrams = this.stats.co2Footprint.toFixed(1);
+    document.getElementById('carbonValue').textContent = carbonGrams;
+    document.getElementById('carbonComparison').innerHTML = 
+      this.getCarbonComparison(parseFloat(carbonGrams));
+
+    // Update website breakdown
+    this.renderWebsiteBreakdown();
+  }
+
+  updateTrackingStatus() {
+    const indicator = document.getElementById('statusIndicator');
+    const statusText = document.getElementById('statusText');
+    const toggleBtn = document.getElementById('toggleTracking');
+
+    if (this.isTracking) {
+      indicator.classList.remove('paused');
+      statusText.textContent = 'Tracking Active';
+      toggleBtn.textContent = 'Pause Tracking';
     } else {
-      impactLevel.textContent = 'Significant';
-      impactLevel.classList.add('high');
+      indicator.classList.add('paused');
+      statusText.textContent = 'Tracking Paused';
+      toggleBtn.textContent = 'Resume Tracking';
     }
   }
 
-  updatePlatformsList() {
-    const platformsList = document.getElementById('platformsList');
-    const platformsCount = document.getElementById('platformsCount');
-    const sites = this.stats.sites;
+  getCarbonComparison(carbonGrams) {
+    const PHONE_CHARGE_CO2 = 8.8; // grams of CO2 per phone charge
+    const KM_DRIVING_CO2 = 120; // grams of CO2 per km of car driving
 
-    const sortedSites = Object.entries(sites).sort(([, a], [, b]) => b.count - a.count);
+    if (carbonGrams < PHONE_CHARGE_CO2) {
+      return `Less than <strong>1 phone charge</strong>`;
+    }
 
-    if (sortedSites.length === 0) {
-      platformsList.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 8V12M12 16H12.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><p>No AI platforms used today</p></div>';
-      platformsCount.textContent = '0 Active';
+    const phoneCharges = Math.round(carbonGrams / PHONE_CHARGE_CO2);
+    
+    if (phoneCharges < 10) {
+      return `Equivalent to charging a phone <strong>${phoneCharges} time${phoneCharges > 1 ? 's' : ''}</strong>`;
+    } else if (phoneCharges < 100) {
+      return `Equivalent to <strong>${phoneCharges} phone charges</strong>`;
+    } else {
+      const kmDriving = (carbonGrams / KM_DRIVING_CO2).toFixed(1);
+      return `Equivalent to <strong>${kmDriving} km</strong> of car driving`;
+    }
+  }
+
+  renderWebsiteBreakdown() {
+    const container = document.getElementById('websiteBreakdown');
+    const sites = this.stats.sites || {};
+    
+    if (Object.keys(sites).length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🔍</div>
+          <p>No AI platforms used today</p>
+        </div>
+      `;
       return;
     }
 
-    platformsCount.textContent = sortedSites.length + ' Active';
+    // Sort sites by request count
+    const sortedSites = Object.entries(sites)
+      .sort(([, a], [, b]) => b.count - a.count)
+      .slice(0, 5); // Top 5
 
-    platformsList.innerHTML = sortedSites.map(([site, data]) => {
-      return this.createPlatformItem(site, data);
-    }).join('');
+    container.innerHTML = '';
 
-    document.querySelectorAll('.platform-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const site = item.dataset.site;
-        this.showPlatformInsights(site);
-      });
+    sortedSites.forEach(([domain, siteStats]) => {
+      const platform = AI_PLATFORMS[domain] || { name: domain, icon: '🔗' };
+      const energyWh = (siteStats.energy * 1000).toFixed(2);
+      const avgTime = Math.round(siteStats.totalTime / siteStats.count);
+
+      const item = document.createElement('div');
+      item.className = 'website-item';
+      item.innerHTML = `
+        <div class="website-name">
+          <span>${platform.icon}</span>
+          <span>${platform.name}</span>
+        </div>
+        <div class="website-stats">
+          <div><strong>${siteStats.count}</strong> requests</div>
+          <div style="font-size: 10px; opacity: 0.8;">${energyWh} Wh · ${avgTime}ms avg</div>
+        </div>
+      `;
+
+      container.appendChild(item);
     });
   }
 
-  createPlatformItem(site, data) {
-    chrome.runtime.sendMessage({ action: 'getPlatformInfo', site }, (response) => {
-      if (response && response.platform) {
-        this.platformInfo[site] = response.platform;
+  bindEvents() {
+    // Toggle tracking button
+    document.getElementById('toggleTracking').addEventListener('click', async () => {
+      try {
+        chrome.runtime.sendMessage({ action: 'toggleTracking' }, (response) => {
+          if (response && response.isTracking !== undefined) {
+            this.isTracking = response.isTracking;
+            this.updateTrackingStatus();
+          }
+        });
+      } catch (error) {
+        console.error('Failed to toggle tracking:', error);
       }
     });
 
-    const platform = this.platformInfo[site];
-    const gradient = platform ? platform.gradient : 'linear-gradient(135deg, #64748b 0%, #475569 100%)';
-    const name = platform ? platform.name : this.formatSiteName(site);
-    const avgTime = (data.totalTime / data.count / 1000).toFixed(2);
-    const energyMwh = (data.energy * 1000).toFixed(2);
-
-    return '<div class="platform-item" data-site="' + site + '"><div class="platform-color" style="background: ' + gradient + '">' + name.substring(0, 2).toUpperCase() + '</div><div class="platform-info"><div class="platform-name">' + name + '</div><div class="platform-stats">' + data.count + ' requests • ' + avgTime + 's avg • ' + energyMwh + 'mWh</div></div><svg class="platform-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
-  }
-
-  formatSiteName(site) {
-    return site.replace('www.', '').replace('.com', '').replace('.ai', '').split('.').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-  }
-
-  showPlatformInsights(site) {
-    const platform = this.platformInfo[site];
-    if (!platform) return;
-
-    const siteData = this.stats.sites[site];
-    const insightsSection = document.getElementById('insightsSection');
-    const insightContent = document.getElementById('insightContent');
-
-    const avgTime = (siteData.totalTime / siteData.count / 1000).toFixed(2);
-    const energyMwh = (siteData.energy * 1000).toFixed(3);
-    const co2 = (siteData.energy * 0.475 * 1000).toFixed(1);
-
-    insightContent.innerHTML = '<div class="insight-header"><div class="insight-platform-icon" style="background: ' + platform.gradient + '">' + platform.name.substring(0, 2).toUpperCase() + '</div><div class="insight-platform-info"><h3>' + platform.name + '</h3><p>' + platform.provider + ' • ' + platform.modelType + '</p></div></div><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;"><div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);"><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">REQUESTS</div><div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">' + siteData.count + '</div></div><div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);"><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">AVG TIME</div><div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">' + avgTime + 's</div></div><div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);"><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">ENERGY</div><div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">' + energyMwh + 'mWh</div></div></div><div class="insight-description"><strong>About ' + platform.name + ':</strong><br><br>' + platform.description + '</div><div class="insight-factors"><h4>Energy Consumption Factors</h4><p>' + platform.energyFactors + '</p></div><div style="margin-top: 16px; padding: 16px; background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border);"><div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Environmental Impact</div><div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;"><div><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">CO₂ Generated</div><div style="font-size: 16px; font-weight: 700; color: #f56565;">' + co2 + 'g</div></div><div><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Tree Absorption Time</div><div style="font-size: 16px; font-weight: 700; color: #48bb78;">' + (co2 / 0.06).toFixed(1) + 'min</div></div></div></div>';
-
-    insightsSection.style.display = 'block';
-    insightsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
-  closeInsights() {
-    document.getElementById('insightsSection').style.display = 'none';
-  }
-
-  updateTrackingToggle() {
-    const toggle = document.getElementById('trackingToggle');
-    if (this.stats.isTracking) {
-      toggle.classList.add('active');
-    } else {
-      toggle.classList.remove('active');
-    }
-  }
-
-  toggleTracking() {
-    this.stats.isTracking = !this.stats.isTracking;
-    chrome.storage.local.set({ dailyStats: this.stats });
-    this.updateTrackingToggle();
-  }
-
-  resetData() {
-    if (!confirm('Are you sure you want to reset all data for today? This action cannot be undone.')) {
-      return;
-    }
-
-    chrome.storage.local.get(['dailyStats'], (result) => {
-      const currentTracking = result.dailyStats ? result.dailyStats.isTracking : true;
-      
-      this.stats = {
-        requests: 0,
-        totalTime: 0,
-        energyUsed: 0,
-        co2Footprint: 0,
-        sites: {},
-        hourlyData: Array(24).fill(0),
-        isTracking: currentTracking
-      };
-
-      chrome.storage.local.set({ dailyStats: this.stats }, () => {
-        this.updateDisplay();
-        this.closeInsights();
-      });
-    });
-  }
-
-  showHistory() {
-    chrome.storage.local.get(['history'], (result) => {
-      const history = result.history || [];
-      
-      if (history.length === 0) {
-        alert('No historical data available yet. Data will be saved at midnight each day.');
-        return;
+    // Reset stats button
+    document.getElementById('resetStats').addEventListener('click', async () => {
+      if (confirm('Are you sure you want to reset all statistics? This action cannot be undone.')) {
+        try {
+          chrome.runtime.sendMessage({ action: 'resetStats' }, async (response) => {
+            if (response && response.success) {
+              await this.loadStats();
+              this.render();
+              
+              // Show feedback
+              const btn = document.getElementById('resetStats');
+              const originalText = btn.textContent;
+              btn.textContent = '✓ Statistics Reset!';
+              btn.style.background = 'rgba(76, 175, 80, 0.3)';
+              btn.style.borderColor = 'rgba(76, 175, 80, 0.5)';
+              
+              setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.background = '';
+                btn.style.borderColor = '';
+              }, 2000);
+            }
+          });
+        } catch (error) {
+          console.error('Failed to reset stats:', error);
+        }
       }
-
-      let historyText = 'Historical Data (Last 30 Days):\n\n';
-      
-      history.slice(-7).reverse().forEach(entry => {
-        const date = new Date(entry.date).toLocaleDateString();
-        const stats = entry.stats;
-        historyText += date + ':\n';
-        historyText += '  Requests: ' + stats.requests + '\n';
-        historyText += '  Energy: ' + (stats.energyUsed * 1000).toFixed(2) + 'mWh\n';
-        historyText += '  CO₂: ' + Math.round(stats.co2Footprint) + 'g\n\n';
-      });
-
-      alert(historyText);
     });
   }
 
-  showSettings() {
-    alert('Settings panel coming soon!\n\nFeatures:\n- Custom CO₂ conversion rates\n- Export data\n- Notifications\n- Theme customization');
-  }
-
-  startAutoRefresh() {
-    setInterval(() => {
-      this.loadStats();
-    }, 3000);
+  showError() {
+    document.getElementById('loading').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <p>Failed to load statistics</p>
+        <p style="font-size: 11px; margin-top: 8px; opacity: 0.7;">Please try again later</p>
+      </div>
+    `;
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  new EnviroTrackPopup();
-});font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">REQUESTS</div>
-          <div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">${siteData.count}</div>
-        </div>
-        <div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
-          <div style="
+// Initialize popup when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    new PopupUI();
+  });
+} else {
+  new PopupUI();
+}
