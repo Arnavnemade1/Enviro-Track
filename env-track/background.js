@@ -220,17 +220,21 @@ chrome.webRequest.onCompleted.addListener(
   { urls: ["<all_urls>"] }
 );
 
-chrome.alarms.create('dailyReset', { 
-  when: getNextMidnight(),
-  periodInMinutes: 1440 
-});
-
 function getNextMidnight() {
   const now = new Date();
   const midnight = new Date(now);
   midnight.setHours(24, 0, 0, 0);
   return midnight.getTime();
 }
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.set({ dailyStats, history: [] });
+  
+  chrome.alarms.create('dailyReset', { 
+    when: getNextMidnight(),
+    periodInMinutes: 1440 
+  });
+});
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'dailyReset') {
@@ -257,10 +261,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       });
     });
   }
-});
-
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.set({ dailyStats, history: [] });
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
