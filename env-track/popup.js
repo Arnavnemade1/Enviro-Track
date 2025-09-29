@@ -18,37 +18,51 @@ class PopupUI {
   constructor() {
     this.stats = null;
     this.isTracking = true;
+    console.log('PopupUI initializing...');
     this.init();
   }
 
   async init() {
     try {
+      console.log('Loading stats...');
       await this.loadStats();
+      console.log('Stats loaded:', this.stats);
       this.render();
       this.bindEvents();
       
-      // Refresh every 5 seconds
+      // Refresh every 3 seconds
       setInterval(() => {
-        this.loadStats();
-        this.render();
-      }, 5000);
+        this.loadStats().then(() => this.render());
+      }, 3000);
       
     } catch (error) {
       console.error('Failed to initialize popup:', error);
-      this.showError();
+      this.showError(error.message);
     }
   }
 
   async loadStats() {
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ action: 'getStats' }, (response) => {
+    return new Promise((resolve, reject) => {
+      // Try direct storage access first
+      chrome.storage.local.get(['dailyStats', 'history'], (result) => {
         if (chrome.runtime.lastError) {
-          console.error('Error loading stats:', chrome.runtime.lastError);
-          this.stats = this.getDefaultStats();
-        } else {
-          this.stats = response?.stats || this.getDefaultStats();
-          this.isTracking = this.stats.isTracking !== false;
+          console.error('Storage error:', chrome.runtime.lastError);
+          reject(chrome.runtime.lastError);
+          return;
         }
+
+        console.log('Raw storage data:', result);
+
+        if (result.dailyStats) {
+          this.stats = result.dailyStats;
+          this.isTracking = this.stats.isTracking !== false;
+          console.log('Stats loaded from storage:', this.stats);
+        } else {
+          // Initialize default stats
+          this.stats = this.getDefaultStats();
+          console.log('Using default stats');
+        }
+        
         resolve();
       });
     });
@@ -61,11 +75,15 @@ class PopupUI {
       energyUsed: 0,
       co2Footprint: 0,
       sites: {},
-      isTracking: true
+      hourlyData: Array(24).fill(0),
+      isTracking: true,
+      lastReset: Date.now()
     };
   }
 
   render() {
+    console.log('Rendering with stats:', this.stats);
+    
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
 
@@ -73,16 +91,17 @@ class PopupUI {
     this.updateTrackingStatus();
 
     // Update request count
-    document.getElementById('requestCount').textContent = this.stats.requests;
+    const requestCount = this.stats.requests || 0;
+    document.getElementById('requestCount').textContent = requestCount;
 
     // Update average response time
-    const avgTime = this.stats.requests > 0 
-      ? Math.round(this.stats.totalTime / this.stats.requests)
+    const avgTime = requestCount > 0 
+      ? Math.round(this.stats.totalTime / requestCount)
       : 0;
     document.getElementById('avgResponseTime').textContent = avgTime;
 
     // Update energy consumption (convert from kWh to Wh)
-    const energyWh = (this.stats.energyUsed * 1000).toFixed(2);
+    const energyWh = ((this.stats.energyUsed || 0) * 1000).toFixed(2);
     document.getElementById('energyValue').textContent = energyWh;
     
     // Energy progress bar (max at 100 Wh for visualization)
@@ -90,7 +109,7 @@ class PopupUI {
     document.getElementById('energyProgress').style.width = `${energyPercent}%`;
 
     // Update carbon footprint
-    const carbonGrams = this.stats.co2Footprint.toFixed(1);
+    const carbonGrams = (this.stats.co2Footprint || 0).toFixed(1);
     document.getElementById('carbonValue').textContent = carbonGrams;
     document.getElementById('carbonComparison').innerHTML = 
       this.getCarbonComparison(parseFloat(carbonGrams));
@@ -119,6 +138,10 @@ class PopupUI {
     const PHONE_CHARGE_CO2 = 8.8; // grams of CO2 per phone charge
     const KM_DRIVING_CO2 = 120; // grams of CO2 per km of car driving
 
+    if (carbonGrams < 1) {
+      return `Minimal impact - keep it up! 🌱`;
+    }
+
     if (carbonGrams < PHONE_CHARGE_CO2) {
       return `Less than <strong>1 phone charge</strong>`;
     }
@@ -139,11 +162,14 @@ class PopupUI {
     const container = document.getElementById('websiteBreakdown');
     const sites = this.stats.sites || {};
     
+    console.log('Rendering sites:', sites);
+    
     if (Object.keys(sites).length === 0) {
       container.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">🔍</div>
-          <p>No AI platforms used today</p>
+          <p>No AI platforms used yet</p>
+          <p style="font-size: 11px; margin-top: 8px; opacity: 0.7;">Visit an AI website to start tracking</p>
         </div>
       `;
       return;
@@ -158,8 +184,8 @@ class PopupUI {
 
     sortedSites.forEach(([domain, siteStats]) => {
       const platform = AI_PLATFORMS[domain] || { name: domain, icon: '🔗' };
-      const energyWh = (siteStats.energy * 1000).toFixed(2);
-      const avgTime = Math.round(siteStats.totalTime / siteStats.count);
+      const energyWh = ((siteStats.energy || 0) * 1000).toFixed(2);
+      const avgTime = siteStats.count > 0 ? Math.round(siteStats.totalTime / siteStats.count) : 0;
 
       const item = document.createElement('div');
       item.className = 'website-item';
@@ -179,66 +205,85 @@ class PopupUI {
   }
 
   bindEvents() {
+    console.log('Binding events...');
+    
     // Toggle tracking button
-    document.getElementById('toggleTracking').addEventListener('click', async () => {
-      try {
-        chrome.runtime.sendMessage({ action: 'toggleTracking' }, (response) => {
-          if (response && response.isTracking !== undefined) {
-            this.isTracking = response.isTracking;
-            this.updateTrackingStatus();
-          }
+    const toggleBtn = document.getElementById('toggleTracking');
+    toggleBtn.addEventListener('click', () => {
+      console.log('Toggle button clicked');
+      
+      chrome.storage.local.get('dailyStats', (result) => {
+        const stats = result.dailyStats || this.getDefaultStats();
+        stats.isTracking = !stats.isTracking;
+        
+        chrome.storage.local.set({ dailyStats: stats }, () => {
+          console.log('Tracking toggled:', stats.isTracking);
+          this.isTracking = stats.isTracking;
+          this.updateTrackingStatus();
+          
+          // Show feedback
+          toggleBtn.style.transform = 'scale(0.95)';
+          setTimeout(() => {
+            toggleBtn.style.transform = 'scale(1)';
+          }, 100);
         });
-      } catch (error) {
-        console.error('Failed to toggle tracking:', error);
-      }
+      });
     });
 
     // Reset stats button
-    document.getElementById('resetStats').addEventListener('click', async () => {
-      if (confirm('Are you sure you want to reset all statistics? This action cannot be undone.')) {
-        try {
-          chrome.runtime.sendMessage({ action: 'resetStats' }, async (response) => {
-            if (response && response.success) {
-              await this.loadStats();
-              this.render();
-              
-              // Show feedback
-              const btn = document.getElementById('resetStats');
-              const originalText = btn.textContent;
-              btn.textContent = '✓ Statistics Reset!';
-              btn.style.background = 'rgba(76, 175, 80, 0.3)';
-              btn.style.borderColor = 'rgba(76, 175, 80, 0.5)';
-              
-              setTimeout(() => {
-                btn.textContent = originalText;
-                btn.style.background = '';
-                btn.style.borderColor = '';
-              }, 2000);
-            }
-          });
-        } catch (error) {
-          console.error('Failed to reset stats:', error);
-        }
+    const resetBtn = document.getElementById('resetStats');
+    resetBtn.addEventListener('click', () => {
+      console.log('Reset button clicked');
+      
+      if (confirm('Are you sure you want to reset all statistics?\n\nThis will clear:\n• All request data\n• Energy usage\n• Carbon footprint\n• Platform breakdown\n• History\n\nThis action cannot be undone.')) {
+        const newStats = this.getDefaultStats();
+        
+        chrome.storage.local.set({ 
+          dailyStats: newStats,
+          history: []
+        }, () => {
+          console.log('Stats reset');
+          this.stats = newStats;
+          this.render();
+          
+          // Show feedback
+          const originalText = resetBtn.textContent;
+          resetBtn.textContent = '✓ Statistics Reset!';
+          resetBtn.style.background = 'rgba(76, 175, 80, 0.3)';
+          resetBtn.style.borderColor = 'rgba(76, 175, 80, 0.5)';
+          
+          setTimeout(() => {
+            resetBtn.textContent = originalText;
+            resetBtn.style.background = '';
+            resetBtn.style.borderColor = '';
+          }, 2000);
+        });
       }
     });
+
+    console.log('Events bound successfully');
   }
 
-  showError() {
+  showError(message) {
     document.getElementById('loading').innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">⚠️</div>
         <p>Failed to load statistics</p>
-        <p style="font-size: 11px; margin-top: 8px; opacity: 0.7;">Please try again later</p>
+        <p style="font-size: 11px; margin-top: 8px; opacity: 0.7;">${message || 'Please try again'}</p>
       </div>
     `;
   }
 }
 
 // Initialize popup when DOM is ready
+console.log('Popup script loaded');
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM loaded, initializing PopupUI');
     new PopupUI();
   });
 } else {
+  console.log('DOM already loaded, initializing PopupUI');
   new PopupUI();
 }
