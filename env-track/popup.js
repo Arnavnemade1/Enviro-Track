@@ -61,19 +61,19 @@ class EnviroTrackPopup {
     const energy = this.stats.energyUsed;
     let energyDisplay;
     if (energy < 0.001) {
-      energyDisplay = `${(energy * 1000000).toFixed(0)}µWh`;
+      energyDisplay = (energy * 1000000).toFixed(0) + 'µWh';
     } else if (energy < 1) {
-      energyDisplay = `${(energy * 1000).toFixed(2)}mWh`;
+      energyDisplay = (energy * 1000).toFixed(2) + 'mWh';
     } else {
-      energyDisplay = `${energy.toFixed(3)}kWh`;
+      energyDisplay = energy.toFixed(3) + 'kWh';
     }
     document.getElementById('totalEnergy').textContent = energyDisplay;
 
     const co2 = Math.round(this.stats.co2Footprint);
-    document.getElementById('totalCO2').textContent = `${co2}g`;
+    document.getElementById('totalCO2').textContent = co2 + 'g';
 
     const treeMinutes = (this.stats.co2Footprint / 0.06).toFixed(1);
-    document.getElementById('treeTime').textContent = `${treeMinutes}m`;
+    document.getElementById('treeTime').textContent = treeMinutes + 'm';
   }
 
   updateImpactBar() {
@@ -82,7 +82,7 @@ class EnviroTrackPopup {
     const impactLevel = document.getElementById('impactLevel');
 
     let percentage = Math.min(100, (co2 / 200) * 100);
-    impactFill.style.width = `${percentage}%`;
+    impactFill.style.width = percentage + '%';
 
     impactLevel.classList.remove('low', 'moderate', 'high');
     
@@ -103,24 +103,15 @@ class EnviroTrackPopup {
     const platformsCount = document.getElementById('platformsCount');
     const sites = this.stats.sites;
 
-    const sortedSites = Object.entries(sites)
-      .sort(([, a], [, b]) => b.count - a.count);
+    const sortedSites = Object.entries(sites).sort(([, a], [, b]) => b.count - a.count);
 
     if (sortedSites.length === 0) {
-      platformsList.innerHTML = `
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
-            <path d="M12 8V12M12 16H12.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          <p>No AI platforms used today</p>
-        </div>
-      `;
+      platformsList.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 8V12M12 16H12.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><p>No AI platforms used today</p></div>';
       platformsCount.textContent = '0 Active';
       return;
     }
 
-    platformsCount.textContent = `${sortedSites.length} Active`;
+    platformsCount.textContent = sortedSites.length + ' Active';
 
     platformsList.innerHTML = sortedSites.map(([site, data]) => {
       return this.createPlatformItem(site, data);
@@ -142,36 +133,16 @@ class EnviroTrackPopup {
     });
 
     const platform = this.platformInfo[site];
-    const color = platform ? platform.color : '#64748b';
     const gradient = platform ? platform.gradient : 'linear-gradient(135deg, #64748b 0%, #475569 100%)';
     const name = platform ? platform.name : this.formatSiteName(site);
     const avgTime = (data.totalTime / data.count / 1000).toFixed(2);
     const energyMwh = (data.energy * 1000).toFixed(2);
 
-    return `
-      <div class="platform-item" data-site="${site}">
-        <div class="platform-color" style="background: ${gradient}">
-          ${name.substring(0, 2).toUpperCase()}
-        </div>
-        <div class="platform-info">
-          <div class="platform-name">${name}</div>
-          <div class="platform-stats">${data.count} requests • ${avgTime}s avg • ${energyMwh}mWh</div>
-        </div>
-        <svg class="platform-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-    `;
+    return '<div class="platform-item" data-site="' + site + '"><div class="platform-color" style="background: ' + gradient + '">' + name.substring(0, 2).toUpperCase() + '</div><div class="platform-info"><div class="platform-name">' + name + '</div><div class="platform-stats">' + data.count + ' requests • ' + avgTime + 's avg • ' + energyMwh + 'mWh</div></div><svg class="platform-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
   }
 
   formatSiteName(site) {
-    return site
-      .replace('www.', '')
-      .replace('.com', '')
-      .replace('.ai', '')
-      .split('.')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+    return site.replace('www.', '').replace('.com', '').replace('.ai', '').split('.').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   }
 
   showPlatformInsights(site) {
@@ -186,52 +157,7 @@ class EnviroTrackPopup {
     const energyMwh = (siteData.energy * 1000).toFixed(3);
     const co2 = (siteData.energy * 0.475 * 1000).toFixed(1);
 
-    insightContent.innerHTML = `
-      <div class="insight-header">
-        <div class="insight-platform-icon" style="background: ${platform.gradient}">
-          ${platform.name.substring(0, 2).toUpperCase()}
-        </div>
-        <div class="insight-platform-info">
-          <h3>${platform.name}</h3>
-          <p>${platform.provider} • ${platform.modelType}</p>
-        </div>
-      </div>
-
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
-        <div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
-          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">AVG TIME</div>
-          <div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">${avgTime}s</div>
-        </div>
-        <div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
-          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">ENERGY</div>
-          <div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">${energyMwh}mWh</div>
-        </div>
-      </div>
-
-      <div class="insight-description">
-        <strong>About ${platform.name}:</strong><br><br>
-        ${platform.description}
-      </div>
-
-      <div class="insight-factors">
-        <h4>Energy Consumption Factors</h4>
-        <p>${platform.energyFactors}</p>
-      </div>
-
-      <div style="margin-top: 16px; padding: 16px; background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border);">
-        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Environmental Impact</div>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-          <div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">CO₂ Generated</div>
-            <div style="font-size: 16px; font-weight: 700; color: #f56565;">${co2}g</div>
-          </div>
-          <div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Tree Absorption Time</div>
-            <div style="font-size: 16px; font-weight: 700; color: #48bb78;">${(co2 / 0.06).toFixed(1)}min</div>
-          </div>
-        </div>
-      </div>
-    `;
+    insightContent.innerHTML = '<div class="insight-header"><div class="insight-platform-icon" style="background: ' + platform.gradient + '">' + platform.name.substring(0, 2).toUpperCase() + '</div><div class="insight-platform-info"><h3>' + platform.name + '</h3><p>' + platform.provider + ' • ' + platform.modelType + '</p></div></div><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;"><div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);"><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">REQUESTS</div><div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">' + siteData.count + '</div></div><div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);"><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">AVG TIME</div><div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">' + avgTime + 's</div></div><div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);"><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">ENERGY</div><div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">' + energyMwh + 'mWh</div></div></div><div class="insight-description"><strong>About ' + platform.name + ':</strong><br><br>' + platform.description + '</div><div class="insight-factors"><h4>Energy Consumption Factors</h4><p>' + platform.energyFactors + '</p></div><div style="margin-top: 16px; padding: 16px; background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border);"><div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Environmental Impact</div><div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;"><div><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">CO₂ Generated</div><div style="font-size: 16px; font-weight: 700; color: #f56565;">' + co2 + 'g</div></div><div><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Tree Absorption Time</div><div style="font-size: 16px; font-weight: 700; color: #48bb78;">' + (co2 / 0.06).toFixed(1) + 'min</div></div></div></div>';
 
     insightsSection.style.display = 'block';
     insightsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -295,10 +221,10 @@ class EnviroTrackPopup {
       history.slice(-7).reverse().forEach(entry => {
         const date = new Date(entry.date).toLocaleDateString();
         const stats = entry.stats;
-        historyText += `${date}:\n`;
-        historyText += `  Requests: ${stats.requests}\n`;
-        historyText += `  Energy: ${(stats.energyUsed * 1000).toFixed(2)}mWh\n`;
-        historyText += `  CO₂: ${Math.round(stats.co2Footprint)}g\n\n`;
+        historyText += date + ':\n';
+        historyText += '  Requests: ' + stats.requests + '\n';
+        historyText += '  Energy: ' + (stats.energyUsed * 1000).toFixed(2) + 'mWh\n';
+        historyText += '  CO₂: ' + Math.round(stats.co2Footprint) + 'g\n\n';
       });
 
       alert(historyText);
