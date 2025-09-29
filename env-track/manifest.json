@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "tabs",
-    "webRequest"
+    "webRequest",
+    "alarms"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -19,8 +20,7 @@
     "https://perplexity.ai/*",
     "https://character.ai/*",
     "https://huggingface.co/*",
-    "https://replicate.com/*",
-    "https://*/*"
+    "https://replicate.com/*"
   ],
   "background": {
     "service_worker": "background.js"
