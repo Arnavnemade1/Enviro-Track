@@ -27,12 +27,22 @@ class PopupUI {
       console.log('Loading stats...');
       await this.loadStats();
       console.log('Stats loaded:', this.stats);
+      
+      // Wait for DOM to be fully ready
+      if (document.readyState === 'loading') {
+        await new Promise(resolve => {
+          document.addEventListener('DOMContentLoaded', resolve);
+        });
+      }
+      
       this.render();
       this.bindEvents();
       
       // Refresh every 3 seconds
       setInterval(() => {
-        this.loadStats().then(() => this.render());
+        this.loadStats().then(() => this.render()).catch(err => {
+          console.error('Error updating stats:', err);
+        });
       }, 3000);
       
     } catch (error) {
@@ -84,35 +94,52 @@ class PopupUI {
   render() {
     console.log('Rendering with stats:', this.stats);
     
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('content').style.display = 'block';
+    // Check if elements exist before accessing them
+    const loading = document.getElementById('loading');
+    const content = document.getElementById('content');
+    
+    if (!loading || !content) {
+      console.error('Required DOM elements not found');
+      return;
+    }
+    
+    loading.style.display = 'none';
+    content.style.display = 'block';
 
     // Update tracking status
     this.updateTrackingStatus();
 
     // Update request count
     const requestCount = this.stats.requests || 0;
-    document.getElementById('requestCount').textContent = requestCount;
+    const requestCountEl = document.getElementById('requestCount');
+    if (requestCountEl) requestCountEl.textContent = requestCount;
 
     // Update average response time
     const avgTime = requestCount > 0 
       ? Math.round(this.stats.totalTime / requestCount)
       : 0;
-    document.getElementById('avgResponseTime').textContent = avgTime;
+    const avgTimeEl = document.getElementById('avgResponseTime');
+    if (avgTimeEl) avgTimeEl.textContent = avgTime;
 
     // Update energy consumption (convert from kWh to Wh)
     const energyWh = ((this.stats.energyUsed || 0) * 1000).toFixed(2);
-    document.getElementById('energyValue').textContent = energyWh;
+    const energyValueEl = document.getElementById('energyValue');
+    if (energyValueEl) energyValueEl.textContent = energyWh;
     
     // Energy progress bar (max at 100 Wh for visualization)
     const energyPercent = Math.min((parseFloat(energyWh) / 100) * 100, 100);
-    document.getElementById('energyProgress').style.width = `${energyPercent}%`;
+    const energyProgressEl = document.getElementById('energyProgress');
+    if (energyProgressEl) energyProgressEl.style.width = `${energyPercent}%`;
 
     // Update carbon footprint
     const carbonGrams = (this.stats.co2Footprint || 0).toFixed(1);
-    document.getElementById('carbonValue').textContent = carbonGrams;
-    document.getElementById('carbonComparison').innerHTML = 
-      this.getCarbonComparison(parseFloat(carbonGrams));
+    const carbonValueEl = document.getElementById('carbonValue');
+    if (carbonValueEl) carbonValueEl.textContent = carbonGrams;
+    
+    const carbonComparisonEl = document.getElementById('carbonComparison');
+    if (carbonComparisonEl) {
+      carbonComparisonEl.innerHTML = this.getCarbonComparison(parseFloat(carbonGrams));
+    }
 
     // Update website breakdown
     this.renderWebsiteBreakdown();
@@ -122,6 +149,11 @@ class PopupUI {
     const indicator = document.getElementById('statusIndicator');
     const statusText = document.getElementById('statusText');
     const toggleBtn = document.getElementById('toggleTracking');
+
+    if (!indicator || !statusText || !toggleBtn) {
+      console.warn('Tracking status elements not found');
+      return;
+    }
 
     if (this.isTracking) {
       indicator.classList.remove('paused');
@@ -160,6 +192,11 @@ class PopupUI {
 
   renderWebsiteBreakdown() {
     const container = document.getElementById('websiteBreakdown');
+    if (!container) {
+      console.warn('Website breakdown container not found');
+      return;
+    }
+    
     const sites = this.stats.sites || {};
     
     console.log('Rendering sites:', sites);
@@ -209,81 +246,98 @@ class PopupUI {
     
     // Toggle tracking button
     const toggleBtn = document.getElementById('toggleTracking');
-    toggleBtn.addEventListener('click', () => {
-      console.log('Toggle button clicked');
-      
-      chrome.storage.local.get('dailyStats', (result) => {
-        const stats = result.dailyStats || this.getDefaultStats();
-        stats.isTracking = !stats.isTracking;
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        console.log('Toggle button clicked');
         
-        chrome.storage.local.set({ dailyStats: stats }, () => {
-          console.log('Tracking toggled:', stats.isTracking);
-          this.isTracking = stats.isTracking;
-          this.updateTrackingStatus();
+        chrome.storage.local.get('dailyStats', (result) => {
+          const stats = result.dailyStats || this.getDefaultStats();
+          stats.isTracking = !stats.isTracking;
           
-          // Show feedback
-          toggleBtn.style.transform = 'scale(0.95)';
-          setTimeout(() => {
-            toggleBtn.style.transform = 'scale(1)';
-          }, 100);
+          chrome.storage.local.set({ dailyStats: stats }, () => {
+            console.log('Tracking toggled:', stats.isTracking);
+            this.isTracking = stats.isTracking;
+            this.updateTrackingStatus();
+            
+            // Show feedback
+            toggleBtn.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+              toggleBtn.style.transform = 'scale(1)';
+            }, 100);
+          });
         });
       });
-    });
+    } else {
+      console.warn('Toggle button not found');
+    }
 
     // Reset stats button
     const resetBtn = document.getElementById('resetStats');
-    resetBtn.addEventListener('click', () => {
-      console.log('Reset button clicked');
-      
-      if (confirm('Are you sure you want to reset all statistics?\n\nThis will clear:\n• All request data\n• Energy usage\n• Carbon footprint\n• Platform breakdown\n• History\n\nThis action cannot be undone.')) {
-        const newStats = this.getDefaultStats();
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        console.log('Reset button clicked');
         
-        chrome.storage.local.set({ 
-          dailyStats: newStats,
-          history: []
-        }, () => {
-          console.log('Stats reset');
-          this.stats = newStats;
-          this.render();
+        if (confirm('Are you sure you want to reset all statistics?\n\nThis will clear:\n• All request data\n• Energy usage\n• Carbon footprint\n• Platform breakdown\n• History\n\nThis action cannot be undone.')) {
+          const newStats = this.getDefaultStats();
           
-          // Show feedback
-          const originalText = resetBtn.textContent;
-          resetBtn.textContent = '✓ Statistics Reset!';
-          resetBtn.style.background = 'rgba(76, 175, 80, 0.3)';
-          resetBtn.style.borderColor = 'rgba(76, 175, 80, 0.5)';
-          
-          setTimeout(() => {
-            resetBtn.textContent = originalText;
-            resetBtn.style.background = '';
-            resetBtn.style.borderColor = '';
-          }, 2000);
-        });
-      }
-    });
+          chrome.storage.local.set({ 
+            dailyStats: newStats,
+            history: []
+          }, () => {
+            console.log('Stats reset');
+            this.stats = newStats;
+            this.render();
+            
+            // Show feedback
+            const originalText = resetBtn.textContent;
+            resetBtn.textContent = '✓ Statistics Reset!';
+            resetBtn.style.background = 'rgba(76, 175, 80, 0.3)';
+            resetBtn.style.borderColor = 'rgba(76, 175, 80, 0.5)';
+            
+            setTimeout(() => {
+              resetBtn.textContent = originalText;
+              resetBtn.style.background = '';
+              resetBtn.style.borderColor = '';
+            }, 2000);
+          });
+        }
+      });
+    } else {
+      console.warn('Reset button not found');
+    }
 
     console.log('Events bound successfully');
   }
 
   showError(message) {
-    document.getElementById('loading').innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">⚠️</div>
-        <p>Failed to load statistics</p>
-        <p style="font-size: 11px; margin-top: 8px; opacity: 0.7;">${message || 'Please try again'}</p>
-      </div>
-    `;
+    const loading = document.getElementById('loading');
+    if (loading) {
+      loading.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">⚠️</div>
+          <p>Failed to load statistics</p>
+          <p style="font-size: 11px; margin-top: 8px; opacity: 0.7;">${message || 'Please try again'}</p>
+        </div>
+      `;
+    }
   }
 }
 
-// Initialize popup when DOM is ready
+// Initialize popup - WAIT FOR DOM TO BE FULLY READY
 console.log('Popup script loaded');
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM loaded, initializing PopupUI');
+function initializePopup() {
+  console.log('DOM ready, initializing PopupUI');
+  try {
     new PopupUI();
-  });
+  } catch (error) {
+    console.error('Failed to create PopupUI:', error);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializePopup);
 } else {
-  console.log('DOM already loaded, initializing PopupUI');
-  new PopupUI();
+  // DOM already loaded
+  initializePopup();
 }
